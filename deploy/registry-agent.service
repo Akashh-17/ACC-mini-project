@@ -1,0 +1,22 @@
+# Phase 4.6 — auto-start the agent on boot. Same unit on all 3 clouds.
+#   sudo cp deploy/registry-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now registry-agent
+#   journalctl -u registry-agent -f
+#
+# ExecStart points at the assembled agent (step 2.6). Until that exists, use
+#   -m agent.replication.dev.devagent
+[Unit]
+Description=Cross-cloud service registry agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=registry
+WorkingDirectory=/opt/registry
+EnvironmentFile=/etc/registry/agent.env
+ExecStart=/opt/registry/.venv/bin/python -m agent.main
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

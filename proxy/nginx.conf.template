@@ -1,0 +1,59 @@
+# Shared reverse-proxy template — identical on AWS, Azure and GCP.
+# Rendered by proxy/render.sh; ${VARS} below are filled from proxy/<region>.env.
+# Nginx's own $variables are left untouched by the renderer.
+#
+# Public surface:  https://<static-ip>/health                 proxy itself
+#                  https://<static-ip>/<service-name>/...     the 4 services in this region
+# NOT exposed:     the agent API (/register, /deregister, /lookup) and replication (9443, mTLS, direct).
+
+limit_req_zone $binary_remote_addr zone=per_client:10m rate=${RATE_LIMIT};
+limit_req_status 429;
+
+upstream payments_api    { server 127.0.0.1:${PAYMENTS_PORT}; }
+upstream fraud_check     { server 127.0.0.1:${FRAUD_PORT}; }
+upstream inventory_check { server 127.0.0.1:${INVENTORY_PORT}; }
+upstream standard_svc    { server 127.0.0.1:${STANDARD_PORT}; }
+
+server {
+    listen 80;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     ${PROXY_TLS_CERT};
+    ssl_certificate_key ${PROXY_TLS_KEY};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    limit_req zone=per_client burst=${RATE_BURST} nodelay;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Region-Id ${REGION_ID};
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 5s;
+
+    # Not rate limited: `return` answers before limit_req runs. Fine for a static
+    # liveness reply; every proxied service path below IS limited (verified: 429s).
+    location = /health {
+        default_type application/json;
+        return 200 '{"status":"ok","region_id":"${REGION_ID}"}';
+    }
+
+    # Trailing slash on proxy_pass strips the prefix: /payments-api/health -> /health
+    location /payments-api/    { proxy_pass http://payments_api/; }
+    location /fraud-check/     { proxy_pass http://fraud_check/; }
+    location /inventory-check/ { proxy_pass http://inventory_check/; }
+    location /${STANDARD_SERVICE}/ { proxy_pass http://standard_svc/; }
+
+    # Team decision pending: should clients do lookups through the proxy?
+    # If yes, uncomment — read-only, rate limited, register/deregister stay local.
+    # location = /lookup {
+    #     limit_except GET { deny all; }
+    #     proxy_pass http://127.0.0.1:${AGENT_PORT};
+    # }
+
+    location / { return 404; }
+}

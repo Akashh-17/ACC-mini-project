@@ -10,3 +10,29 @@ venv/
 *.p12
 *.pfx
 .pytest_cache/
+
+# Generated certs (CA serials, CSRs, per-environment cert folders) and real agent env
+*.srl
+*.csr
+certs/*/
+deploy/agent.env
+
+# Runtime output
+*.log
+proxy/out/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local tool settings
+.claude/settings.local.json
+
+# Project docs kept outside the repo
+tasks.md
+workflow.md
+execution-order.md
+Architecture Diagram.jpg
+CrossCloud_Registry_Project_Documentation.pdf
