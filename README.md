@@ -1,16 +1,31 @@
 # Cross-Cloud Service Discovery Registry
 
-Azure Catalog & Storage module for the team's shared registry agent.
-Python 3.10+, standard library only.
+The shared registry now includes Azure Catalog & Storage, GCP Replication &
+Security, and the AWS Registry & API module. Python 3.10+.
+
+Start with [AWS Registry & API instructions](agent/registry/README.md) to run
+`python -m agent.main`. For cross-cloud synchronization, also read
+[GCP replication instructions](agent/replication/README.md). All components
+share a single catalog inside each agent process. Ryan's business stub services
+and the full step 2.7 integration test are still separate team work.
+
+Run all module tests after installing `requirements.txt`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+## Azure storage module
+
+Storage alone uses only the Python standard library.
 
 Implemented: set, get, list, delete, changed_since, sweepTTL; atomic peer merge,
 owner snapshots and deletion tombstones for safe integration.
-Registry/API, networking and replication transport are separate team components.
+Registry/API and replication transport use this storage module.
 
 ## Run from VS Code
 
-Open this repository folder directly:
-C:\Users\Abhishek\OneDrive\Desktop\ACC-mini-project
+Open the folder containing `agent`, `tests` and `requirements.txt` directly.
 
 Files saved in this folder appear in VS Code immediately. Do not export another
 copy if you want to see ongoing edits.
