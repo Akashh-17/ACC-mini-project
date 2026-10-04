@@ -30,10 +30,15 @@ Run `scripts/netfault.sh` as root on a cloud VM. It changes only traffic to the
 replication port, leaving SSH and the public proxy available:
 
 ```bash
-sudo bash scripts/netfault.sh partition PEER_PRIVATE_IP
-sudo bash scripts/netfault.sh delay PEER_PRIVATE_IP 200
-sudo bash scripts/netfault.sh clear PEER_PRIVATE_IP
+sudo bash scripts/netfault.sh partition PEER_PUBLIC_IP
+sudo bash scripts/netfault.sh delay PEER_PUBLIC_IP 200
+sudo bash scripts/netfault.sh clear PEER_PUBLIC_IP
 ```
+
+Use the peer VM's public static IP, not its private address. Apply the command
+on the VM whose replication connection should be interrupted. The partition
+rules drop both requests and responses on TCP port `9443`; SSH and HTTPS on
+ports `22` and `443` remain available.
 
 Collect replication JSONL from the service logs and compare the owner's
 `version` with the receiver's `applied_at`. Never commit cloud IPs or secrets.

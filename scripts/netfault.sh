@@ -8,8 +8,13 @@ PORT=${REPLICATION_PORT:-9443}
 
 case "$ACTION" in
   partition)
+    # Drop both directions of the TCP conversation: requests and responses.
     iptables -C OUTPUT -p tcp -d "$PEER_IP" --dport "$PORT" -j DROP 2>/dev/null || \
       iptables -A OUTPUT -p tcp -d "$PEER_IP" --dport "$PORT" -j DROP
+    iptables -C OUTPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP 2>/dev/null || \
+      iptables -A OUTPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP
+    iptables -C INPUT -p tcp -s "$PEER_IP" --dport "$PORT" -j DROP 2>/dev/null || \
+      iptables -A INPUT -p tcp -s "$PEER_IP" --dport "$PORT" -j DROP
     iptables -C INPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP 2>/dev/null || \
       iptables -A INPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP
     ;;
@@ -22,6 +27,8 @@ case "$ACTION" in
     ;;
   clear)
     iptables -D OUTPUT -p tcp -d "$PEER_IP" --dport "$PORT" -j DROP 2>/dev/null || true
+    iptables -D OUTPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP 2>/dev/null || true
+    iptables -D INPUT -p tcp -s "$PEER_IP" --dport "$PORT" -j DROP 2>/dev/null || true
     iptables -D INPUT -p tcp -s "$PEER_IP" --sport "$PORT" -j DROP 2>/dev/null || true
     tc qdisc del dev "$IFACE" root 2>/dev/null || true
     ;;
