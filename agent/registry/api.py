@@ -48,8 +48,12 @@ def create_registry_app(catalog, secret: str, *, allow_loopback=False,
         async with AsyncExitStack() as stack:
             client = health_client
             if client is None:
+                # No keep-alive: probes run on a 5 s beat, exactly uvicorn's idle
+                # timeout, so a reused connection is often closed mid-request and
+                # a healthy service is reported DOWN (measured 16% false failures).
                 client = await stack.enter_async_context(httpx.AsyncClient(
                     timeout=2.0, follow_redirects=False, trust_env=False,
+                    limits=httpx.Limits(max_keepalive_connections=0),
                 ))
             scheduler = HealthScheduler(catalog, client, interval=health_interval,
                                         allow_loopback=allow_loopback)
