@@ -1,0 +1,1 @@
+"""Business-service stubs used by the cross-cloud registry."""
