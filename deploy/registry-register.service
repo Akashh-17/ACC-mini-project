@@ -1,0 +1,22 @@
+# Registers this region's 4 services with the local agent, and again every time
+# the agent (re)starts — the catalog is in memory, so a restart forgets them.
+#   sudo cp deploy/registry-register.service /etc/systemd/system/
+#   sudo systemctl enable registry-register
+# Reads REGION_ID, REGISTRY_SECRET, SERVICE_HOST (this VM's private IP) and
+# REGISTRY_URL from the agent's env file. Retries until the agent accepts.
+[Unit]
+Description=Register this region's services with the local registry agent
+After=registry-agent.service
+BindsTo=registry-agent.service
+
+[Service]
+Type=oneshot
+User=registry
+WorkingDirectory=/opt/registry
+EnvironmentFile=/etc/registry/agent.env
+ExecStart=/opt/registry/.venv/bin/python -m services.register_services
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=registry-agent.service

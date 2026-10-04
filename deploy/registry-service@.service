@@ -1,0 +1,21 @@
+# One unit per business-service stub; same file on all 3 clouds.
+#   /etc/registry/services/<name>.env  holds SERVICE_NAME, SERVICE_REGION, SERVICE_PORT
+#   sudo cp deploy/registry-service@.service /etc/systemd/system/
+#   sudo systemctl enable --now registry-service@payments-api registry-service@fraud-check ...
+# Binds 0.0.0.0 so the agent's health check (private IP) and nginx (127.0.0.1)
+# both reach it; the cloud firewall keeps 8081-8084 closed from outside.
+[Unit]
+Description=Registry stub service %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=registry
+WorkingDirectory=/opt/registry
+EnvironmentFile=/etc/registry/services/%i.env
+ExecStart=/opt/registry/.venv/bin/python -m services.app
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
