@@ -2,9 +2,11 @@
 # Rendered by proxy/render.sh; ${VARS} below are filled from proxy/<region>.env.
 # Nginx's own $variables are left untouched by the renderer.
 #
-# Public surface:  https://<static-ip>/health                 proxy itself
-#                  https://<static-ip>/<service-name>/...     the 4 services in this region
-# NOT exposed:     the agent API (/register, /deregister, /lookup) and replication (9443, mTLS, direct).
+# Exposed:      https://<ip>/health                    proxy itself
+#               https://<ip>/<service-name>/...        the 4 services in this region
+#               https://<ip>/lookup?service_name=X     registry lookup, GET only
+# NOT exposed:  /register, /deregister (agent API stays localhost) and replication (9443, mTLS, direct).
+# Reach it over Tailscale (100.x addresses); public 443 should stay closed.
 
 limit_req_zone $binary_remote_addr zone=per_client:10m rate=${RATE_LIMIT};
 limit_req_status 429;
@@ -48,12 +50,13 @@ server {
     location /inventory-check/ { proxy_pass http://inventory_check/; }
     location /${STANDARD_SERVICE}/ { proxy_pass http://standard_svc/; }
 
-    # Team decision pending: should clients do lookups through the proxy?
-    # If yes, uncomment — read-only, rate limited, register/deregister stay local.
-    # location = /lookup {
-    #     limit_except GET { deny all; }
-    #     proxy_pass http://127.0.0.1:${AGENT_PORT};
-    # }
+    # Read-only registry lookup for the test harness and demo client (Phase 5).
+    # Safe because the proxy is reachable only over Tailscale. GET only, rate
+    # limited; /register and /deregister stay localhost-only (they 404 here).
+    location = /lookup {
+        limit_except GET { deny all; }
+        proxy_pass http://127.0.0.1:${AGENT_PORT};
+    }
 
     location / { return 404; }
 }
