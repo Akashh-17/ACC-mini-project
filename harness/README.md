@@ -1,5 +1,8 @@
 # T4 harness
 
+For Phase 5 cloud experiments, measured CSV output and the failover demo, see
+[Ryan's Phase 5 workflow](PHASE5.md) and run `python -m harness.phase5 --help`.
+
 Run the local service smoke test from the repository root:
 
 ```powershell

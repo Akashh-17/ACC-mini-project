@@ -20,6 +20,8 @@ deploy/agent.env
 # Runtime output
 *.log
 proxy/out/
+# Laptop experiment output and private deployment addresses
+results/
 
 # Editors / OS
 .vscode/

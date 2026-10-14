@@ -1,0 +1,20 @@
+{
+  "gcp": {
+    "region_id": "gcp-asia-south1",
+    "base_url": "https://GCP_TAILSCALE_IP",
+    "public_ip": "GCP_PUBLIC_IP",
+    "standard_service": "notify-api"
+  },
+  "aws": {
+    "region_id": "aws-ap-south-1",
+    "base_url": "https://AWS_TAILSCALE_IP",
+    "public_ip": "AWS_PUBLIC_IP",
+    "standard_service": "recommend-api"
+  },
+  "azure": {
+    "region_id": "azure-indiasouthcentral",
+    "base_url": "https://AZURE_TAILSCALE_IP",
+    "public_ip": "AZURE_PUBLIC_IP",
+    "standard_service": "admin-api"
+  }
+}
