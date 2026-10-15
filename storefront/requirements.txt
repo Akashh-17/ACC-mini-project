@@ -1,0 +1,4 @@
+# Laptop-only: the storefront demo. VMs don't need these.
+streamlit>=1.57
+httpx>=0.27
+fastapi>=0.110
