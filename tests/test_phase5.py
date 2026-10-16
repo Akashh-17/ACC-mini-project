@@ -173,6 +173,49 @@ class Phase5Tests(unittest.IsolatedAsyncioTestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_report_includes_storefront_business_rehearsal_without_real_payment_claims(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'storefront-rehearsal-summary.json').write_text(json.dumps({
+                'outcome': 'PASS', 'method': 'UI widgets against demo services', 'stages': {
+                    'normal_order': {'order_placed': True, 'steps': [{'name': 'Payment', 'region': 'GCP'}]},
+                    'gcp_payments_failed_order': {'order_placed': True, 'steps': [{'name': 'Payment', 'region': 'AWS'}]},
+                    'checkout_during_recommendation_outage': {'order_placed': True, 'steps': [{'name': 'Payment', 'region': 'GCP'}]},
+                    'gcp_failure_registry_views': {'all_three_render_red': True},
+                    'aws_recommendations_failed': {'ui_unavailable_warning': ['unavailable']},
+                    'recommendations_recovered': {'ui_aws_recommendations_available': True}}}))
+            report = compile_report(root).read_text(encoding='utf-8')
+            self.assertIn('| GCP payments failed | True | AWS |', report)
+            self.assertIn('| AWS recommendations failed | True | GCP |', report)
+            self.assertIn('no real payments or email deliveries', report)
+            self.assertIn('[Rehearsal evidence](storefront-rehearsal-summary.json)', report)
+
+    def test_report_keeps_imported_vm_vantage_separate_and_preserves_sessions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for folder_name, origin in (('laptop-latency', None), ('vm-latency', 'GCP VM (asia-south1)')):
+                folder = root / folder_name
+                folder.mkdir()
+                (folder / 'session.json').write_text(json.dumps({'command': 'latency', 'parameters': {},
+                                                               'clock': 'time.perf_counter on one laptop'}))
+                rows = [dict(experiment='latency', target_region='gcp', phase=path, metric='request_latency',
+                             unit='seconds', samples=200, passed=200, failed=0, median=value, p95=value*2, max=value*3)
+                        for path, value in (('/lookup', .02), ('/health', .01))]
+                (folder / 'latency-summary.json').write_text(json.dumps({'outcome': 'PASS', 'metrics': rows}))
+                if origin:
+                    (folder / 'provenance.json').write_text(json.dumps({'measurement_vantage': origin,
+                                                                       'vantage_note': 'VANTAGE-NOTE.md'}))
+            originals = {p: p.read_bytes() for p in root.glob('*/session.json')}
+            report = compile_report(root).read_text(encoding='utf-8')
+            self.assertIn('| vm-latency | GCP VM (asia-south1) | gcp | /lookup |', report)
+            self.assertIn("| laptop-latency | Ryan's laptop | gcp | /lookup |", report)
+            self.assertIn('| vm-latency | GCP VM (asia-south1) | gcp | 0.010000 |', report)
+            self.assertIn('[original vantage note](VANTAGE-NOTE.md)', report)
+            self.assertIn('Keep laptop and GCP-VM latency results separate', report)
+            self.assertNotIn('# Phase 5 results from Ryan', report)
+            for path, original in originals.items():
+                self.assertEqual(path.read_bytes(), original)
+
     def test_report_distinguishes_health_checks_from_unrun_experiments(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory) / 'sample-healthcheck'

@@ -99,6 +99,28 @@ Rapid-flapping tests establish eventual final-state convergence; unit tests in
 versions. They do not establish that every intermediate half-second flip was
 observed by a five-second health scheduler.
 
+## Imported result sets
+
+Copy run folders beside the existing folders in `results/`; do not copy an
+archive's older `phase5-report.md` over the current report. Keep original CSVs
+and `session.json` unchanged. Preserve the source's vantage note separately.
+
+For measurements taken somewhere other than Ryan's laptop, add a
+`provenance.json` alongside that run's `session.json`, for example:
+
+```json
+{
+  "measurement_vantage": "GCP VM (asia-south1)",
+  "vantage_note": "gcp-vm-run-2026-10-15-VANTAGE-NOTE.md"
+}
+```
+
+The note path is relative to the `results/` root. `report` identifies the
+measurement origin in its session, metrics and latency-comparison tables.
+GCP-VM latency is measured with the client in the GCP region; keep it separate
+from laptop latency. Perf-counter timestamps from different hosts cannot be
+compared directly, even when older imported metadata says "laptop".
+
 ## Demo
 
 In two terminals:

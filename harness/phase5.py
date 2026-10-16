@@ -495,28 +495,44 @@ def compile_report(output: Path):
     for metadata in sorted(output.glob('*/session.json')):
         folder = metadata.parent
         session = json.loads(metadata.read_text(encoding='utf-8'))
+        provenance_file = folder / 'provenance.json'
+        provenance = json.loads(provenance_file.read_text(encoding='utf-8')) if provenance_file.exists() else {}
+        # Imported runs can carry the old harness's incorrect hardcoded laptop
+        # clock label. Keep their original session/CSV bytes and report the
+        # independently supplied measurement origin alongside every result.
+        session['_report_vantage'] = provenance.get('measurement_vantage', session.get('measurement_vantage', "Ryan's laptop"))
+        session['_report_vantage_note'] = provenance.get('vantage_note')
         summary_file = folder / (session['command'] + '-summary.json')
         summary = json.loads(summary_file.read_text(encoding='utf-8')) if summary_file.exists() else {'outcome': 'INCOMPLETE', 'metrics': []}
         sessions.append((folder, session, summary))
-    lines = ['# Phase 5 results from Ryan\'s laptop', '',
+    lines = ['# Phase 5 experiment results', '',
              'This report summarizes recorded runs. Local unit tests do not count as cloud experiments.', '',
-             '| Run | Outcome | Parameters | Raw data |', '|---|---|---|---|']
+             '## Measurement origins', '',
+             'Every results row identifies the client measurement vantage. Keep laptop and GCP-VM latency results separate; do not pool them or describe GCP-VM timings as laptop timings.',
+             'Each run uses one clock on its measurement host. Raw perf-counter timestamps are not comparable across hosts.', '']
+    origins = sorted({(session['_report_vantage'], session['_report_vantage_note'] or '') for _, session, _ in sessions})
+    for vantage, note in origins:
+        reference = f' See the [original vantage note]({note}).' if note else ''
+        lines.append(f'- {vantage}.{reference}')
+    if any(note for _, note in origins):
+        lines += ['', 'Imported GCP-VM runs have client located in the GCP region: the GCP proxy is effectively local. Original session files may retain the older hardcoded laptop label; the supplied provenance corrects that interpretation without modifying raw data.']
+    lines += ['', '| Run | Outcome | Measurement vantage | Parameters | Raw data |', '|---|---|---|---|---|']
     for folder, session, summary in sessions:
         params = session.get('parameters', {})
         spec = ', '.join(f'{key}={params[key]}' for key in ('targets', 'trials', 'samples', 'delay_ms') if key in params)
-        lines.append(f"| {session['command']} | {summary['outcome']} | {spec or 'read-only / diagnostic'} | [{folder.name}]({folder.name}/) |")
+        lines.append(f"| {session['command']} | {summary['outcome']} | {session['_report_vantage']} | {spec or 'read-only / diagnostic'} | [{folder.name}]({folder.name}/) |")
     lines += ['', '## Measured results', '',
               'Durations are seconds unless another unit is shown. Failed samples are counted separately.', '',
-              '| Run | Target | Phase | Metric | N | Failed | Median | p95 | Max | Unit |',
-              '|---|---|---|---|---:|---:|---:|---:|---:|---|']
+              '| Run | Measurement vantage | Target | Phase | Metric | N | Failed | Median | p95 | Max | Unit |',
+              '|---|---|---|---|---|---:|---:|---:|---:|---:|---|']
     for folder, session, summary in sessions:
         for row in summary.get('metrics', []):
             numbers = [f'{row[key]:.6f}' if row[key] is not None else '—' for key in ('median', 'p95', 'max')]
-            lines.append(f"| {folder.name} | {row['target_region']} | {row['phase']} | {row['metric']} | {row['samples']} | {row['failed']} | " +
+            lines.append(f"| {folder.name} | {session['_report_vantage']} | {row['target_region']} | {row['phase']} | {row['metric']} | {row['samples']} | {row['failed']} | " +
                          ' | '.join(numbers) + f" | {row['unit']} |")
     lines += ['', '## Lookup latency minus health baseline', '',
               'Difference of medians/p95s is a rough estimate, not paired subtraction or pure agent execution time.', '',
-              '| Run | Cloud | Median difference (s) | p95 difference (s) |', '|---|---|---:|---:|']
+              '| Run | Measurement vantage | Cloud | Median difference (s) | p95 difference (s) |', '|---|---|---|---:|---:|']
     for folder, session, summary in sessions:
         if session['command'] != 'latency':
             continue
@@ -524,7 +540,7 @@ def compile_report(output: Path):
             rows = {row['phase']: row for row in summary.get('metrics', []) if row['target_region'] == target}
             if all(path in rows and rows[path]['median'] is not None for path in ('/lookup', '/health')):
                 lookup, health = rows['/lookup'], rows['/health']
-                lines.append(f"| {folder.name} | {target} | {lookup['median']-health['median']:.6f} | {lookup['p95']-health['p95']:.6f} |")
+                lines.append(f"| {folder.name} | {session['_report_vantage']} | {target} | {lookup['median']-health['median']:.6f} | {lookup['p95']-health['p95']:.6f} |")
     completed = {session['command'] for _, session, summary in sessions if summary['outcome'] == 'PASS'}
     lines += ['', '## Remaining work', '']
     for command in ('baseline', 'convergence', 'flap', 'partition-updates', 'partition', 'latency'):
@@ -557,12 +573,36 @@ def compile_report(output: Path):
                   '- This client calls the stub health endpoint; it does not perform financial transactions.']
     else:
         lines.append('- No payments client rehearsal log recorded.')
+    storefront_summary = output / 'storefront-rehearsal-summary.json'
+    if storefront_summary.exists():
+        storefront = json.loads(storefront_summary.read_text(encoding='utf-8'))
+        stages = storefront.get('stages', {})
+        lines += ['', '## Storefront rehearsal', '',
+                  f"Recorded outcome: **{storefront.get('outcome', 'INCOMPLETE')}**.",
+                  f"Method: {storefront.get('method', 'See raw evidence')}.",
+                  'Orders use simulated business services; there are no real payments or email deliveries.', '',
+                  '| Scenario | Order placed | Payment region |', '|---|---|---|']
+        for name, label in (('normal_order', 'Normal checkout'),
+                            ('gcp_payments_failed_order', 'GCP payments failed'),
+                            ('checkout_during_recommendation_outage', 'AWS recommendations failed')):
+            stage = stages.get(name)
+            if stage:
+                payment = next((step.get('region') for step in stage.get('steps', []) if step.get('name') == 'Payment'), None)
+                lines.append(f"| {label} | {stage.get('order_placed', False)} | {payment or 'unavailable'} |")
+        lines += ['', f"All three UI panels rendered GCP payments red: {stages.get('gcp_failure_registry_views', {}).get('all_three_render_red', False)}.",
+                  f"AWS recommendation-unavailable warning observed: {bool(stages.get('aws_recommendations_failed', {}).get('ui_unavailable_warning'))}.",
+                  f"AWS recommendations restored in UI: {stages.get('recommendations_recovered', {}).get('ui_aws_recommendations_available', False)}.",
+                  '[Rehearsal evidence](storefront-rehearsal-summary.json) · [Registry transitions](storefront-rehearsal-events.jsonl).']
+        cleanup = storefront.get('post_rehearsal_verification', {})
+        if cleanup:
+            lines += ['', 'Post-rehearsal verification: ' + cleanup.get('status', 'see evidence') + '.',
+                      'An initial health sweep found recommendations in simulated failure again; explicit recovery was followed by successful business-endpoint, full health and baseline checks. The initial failed sweep is retained in the results.']
     lines += ['', '## Owner inputs (left blank as requested)', '',
               '| Cloud | VM size | Billing evidence | Module / issue notes |',
               '|---|---|---|---|', '| GCP | | | |', '| AWS | | | |', '| Azure | | | |', '',
               '## Setup and limitations', '',
               '- Regions: gcp-asia-south1, aws-ap-south-1, azure-indiasouthcentral.',
-              '- Access from laptop: Tailscale HTTPS proxies with self-signed certificates.',
+              '- Test access: Tailscale HTTPS proxies with self-signed certificates; measurement origin is identified per run.',
               '- Replication: mTLS on VM public IPs, TCP 9443; capture owner logs to corroborate.',
               '- Catalog is in memory; restart requires service re-registration.',
               '- Health detection is sampled every five seconds; laptop lookup polling is every 200 ms.',
