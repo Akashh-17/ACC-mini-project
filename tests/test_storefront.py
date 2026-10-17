@@ -140,3 +140,12 @@ def test_simulate_goes_through_region_proxy(world):
     reg = world.registry()
     assert reg.simulate("aws", "recommend-api", "fail") == 200
     assert world.apps[("recommend-api", "aws-ap-south-1")].get("/health").status_code == 503
+
+
+def test_labels_show_managed_service_backends(world):
+    ok, steps = checkout(world.registry(), {"p1": 1}, PRODUCTS_BY_ID)
+    assert steps[-1].detail.startswith("Queued (local log) (message log-")
+    from storefront.backend import admin_inventory
+    inv = admin_inventory(world.registry())
+    assert inv.region == "Azure" and inv.data["source"] == "memory"
+    assert recommendations(world.registry(), "p1").data["source"] == "memory"

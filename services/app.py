@@ -3,21 +3,28 @@
 Run with SERVICE_NAME, SERVICE_REGION and SERVICE_PORT set in the environment.
 Each service exposes /health, /simulate/fail, /simulate/recover and its own
 business endpoint from tasks.md section 1.2. Logic is deliberately simple and
-deterministic; there is no real payment gateway, fraud model or email delivery.
+deterministic; there is no real payment gateway or fraud model.
+
+The single-cloud standard services can be backed by their cloud's managed service
+(services/backends.py, chosen by env var); /health then also reflects whether that
+managed service is reachable. Critical services never depend on one.
 """
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from .catalog import FRAUD_THRESHOLD, PAYMENT_LIMIT, PRODUCTS, starting_stock
+from .backends import BackendError, HealthCache, backend_from_env
+from .catalog import FRAUD_THRESHOLD, PAYMENT_LIMIT, starting_stock
 
 log = logging.getLogger("services")
 
@@ -63,9 +70,16 @@ def required_setting(name: str) -> str:
     return value
 
 
-def create_app(service_name: str, region_id: str) -> FastAPI:
+_DEFAULT = object()
+
+
+def create_app(service_name: str, region_id: str, backend=_DEFAULT) -> FastAPI:
+    """`backend` defaults to the in-memory one; main() passes the env-selected one."""
     state = {"healthy": True}
-    stock = starting_stock()  # used by inventory-check and admin-api; per process
+    stock = starting_stock()  # inventory-check's own stock; per process
+    if backend is _DEFAULT:
+        backend = backend_from_env(service_name, {})
+    health = HealthCache(backend.check if backend else (lambda: None))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -74,6 +88,15 @@ def create_app(service_name: str, region_id: str) -> FastAPI:
         yield
 
     app = FastAPI(title=service_name, lifespan=lifespan)
+    app.state.health = health
+
+    async def call_backend(fn, *args):
+        # Cloud SDKs block; keep them off the event loop. A failing managed
+        # service makes this API unavailable (503) so callers fail over/degrade.
+        try:
+            return await run_in_threadpool(fn, *args)
+        except BackendError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     def available():
         # A simulated failure fails the business endpoint too, so callers
@@ -82,9 +105,14 @@ def create_app(service_name: str, region_id: str) -> FastAPI:
             raise HTTPException(status_code=503, detail="service is simulated as failed")
 
     @app.get("/health")
-    async def health():
+    async def health_check():
         available()
-        return {"service_name": service_name, "region_id": region_id, "status": "UP"}
+        if not await run_in_threadpool(health.healthy):
+            raise HTTPException(status_code=503, detail=f"{backend.name} backend unavailable")
+        body = {"service_name": service_name, "region_id": region_id, "status": "UP"}
+        if backend is not None:
+            body["backend"] = backend.name
+        return body
 
     @app.post("/simulate/fail")
     async def simulate_failure():
@@ -131,27 +159,29 @@ def create_app(service_name: str, region_id: str) -> FastAPI:
     elif service_name == "recommend-api":
         @app.get("/recommendations", dependencies=[Depends(available)])
         async def recommendations(product_id: str):
-            others = [p["product_id"] for p in PRODUCTS if p["product_id"] != product_id]
-            return {"recommended_ids": others[:3]}
+            ids = await call_backend(backend.get, product_id)
+            return {"recommended_ids": ids, "source": backend.name}
 
     elif service_name == "admin-api":
         @app.get("/inventory", dependencies=[Depends(available)])
         async def inventory():
-            return {"items": [{"product_id": pid, "stock": qty} for pid, qty in stock.items()]}
+            return {"items": await call_backend(backend.items), "source": backend.name}
 
         @app.post("/inventory/update", dependencies=[Depends(available)])
         async def update_inventory(req: StockUpdate):
-            if req.product_id not in stock:
+            try:
+                await call_backend(backend.update, req.product_id, req.stock)
+            except KeyError:
                 raise HTTPException(status_code=404, detail="unknown product_id")
-            stock[req.product_id] = req.stock
             return {"status": "updated"}
 
     elif service_name == "notify-api":
         @app.post("/notify", dependencies=[Depends(available)])
         async def notify(req: NotifyRequest):
-            log.warning("notify: %s -> %s for order %s (region %s)",
-                        req.event, req.email, req.order_id, region_id)
-            return {"status": "queued"}
+            message = {"order_id": req.order_id, "email": req.email, "event": req.event,
+                       "region_id": region_id, "ts": time.time()}
+            message_id = await call_backend(backend.publish, message)
+            return {"status": "queued", "message_id": message_id, "backend": backend.name}
 
     return app
 
@@ -167,7 +197,10 @@ def main() -> None:
         raise ValueError("SERVICE_PORT must be between 1 and 65535")
 
     host = os.environ.get("SERVICE_BIND_HOST", "0.0.0.0").strip()
-    uvicorn.run(create_app(service_name, region_id), host=host, port=port)
+    backend = backend_from_env(service_name, os.environ)
+    if backend is not None:
+        log.warning("%s using %s backend", service_name, backend.name)
+    uvicorn.run(create_app(service_name, region_id, backend=backend), host=host, port=port)
 
 
 if __name__ == "__main__":

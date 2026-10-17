@@ -1,0 +1,3 @@
+# Azure VM only: admin-api with ADMIN_BACKEND=azuretable
+azure-data-tables>=12.5
+azure-identity>=1.15

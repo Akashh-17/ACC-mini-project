@@ -19,6 +19,9 @@ import httpx
 SERVICES = ["payments-api", "fraud-check", "inventory-check",
             "recommend-api", "admin-api", "notify-api"]
 SHORT = {"gcp-asia-south1": "GCP", "aws-ap-south-1": "AWS", "azure-indiasouthcentral": "Azure"}
+# How each managed-service backend is named on screen.
+BACKEND_LABEL = {"pubsub": "Published to Cloud Pub/Sub", "log": "Queued (local log)",
+                 "s3": "Amazon S3", "azuretable": "Azure Table Storage", "memory": "built-in data"}
 
 
 class Unavailable(Exception):
@@ -175,13 +178,19 @@ def checkout(reg: Registry, cart: dict[str, int], products: dict[str, dict],
                      "card_token": "tok_demo"}):
         return False, steps
     run("Confirmation email", "notify-api", "POST", "/notify",
-        lambda d: (True, "Queued"), blocking=False,
+        lambda d: (True, BACKEND_LABEL.get(d.get("backend"), "Queued")
+                   + (f" (message {d['message_id']})" if d.get("message_id") else "")),
+        blocking=False,
         json={"order_id": order_id, "email": email, "event": "order_confirmed"})
     return True, steps
 
 
 def recommendations(reg: Registry, product_id: str) -> CallResult:
     return reg.call("recommend-api", "GET", "/recommendations", params={"product_id": product_id})
+
+
+def admin_inventory(reg: Registry) -> CallResult:
+    return reg.call("admin-api", "GET", "/inventory")
 
 
 def now() -> str:

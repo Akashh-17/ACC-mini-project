@@ -13,6 +13,16 @@ PRODUCTS = [
     {"product_id": "p5", "name": "4K Action Camera", "price": 18999, "stock": 8},
 ]
 
+# "Customers also bought": the memory backend serves this directly; the S3
+# backend serves the same map from recommendations.json (uploaded by services.seed).
+RECOMMENDATIONS = {
+    "p1": ["p3", "p2", "p4"],
+    "p2": ["p1", "p5", "p4"],
+    "p3": ["p1", "p4", "p2"],
+    "p4": ["p5", "p1", "p3"],
+    "p5": ["p4", "p2", "p3"],
+}
+
 PAYMENT_LIMIT = 50000      # payments-api declines amounts above this
 FRAUD_THRESHOLD = 20000    # fraud-check flags amounts above this
 

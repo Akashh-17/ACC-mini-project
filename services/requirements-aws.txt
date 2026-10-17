@@ -1,0 +1,2 @@
+# AWS VM only: recommend-api with RECOMMEND_BACKEND=s3
+boto3>=1.34

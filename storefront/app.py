@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st  # noqa: E402
 
 from services.catalog import PRODUCTS  # noqa: E402
-from storefront.backend import (SERVICES, SHORT, Registry, Unavailable, checkout,  # noqa: E402
-                                load_clouds, now, recommendations)
+from storefront.backend import (BACKEND_LABEL, SERVICES, SHORT, Registry, Unavailable,  # noqa: E402
+                                admin_inventory, checkout, load_clouds, now, recommendations)
 
 CONFIG = Path(os.environ.get("STOREFRONT_CONFIG", ROOT / "results" / "clouds.local.json"))
 PRODUCTS_BY_ID = {p["product_id"]: p for p in PRODUCTS}
@@ -90,10 +90,24 @@ with shop:
             rec = recommendations(reg, viewed["product_id"])
             names = [PRODUCTS_BY_ID[i]["name"] for i in rec.data["recommended_ids"] if i in PRODUCTS_BY_ID]
             st.markdown(" · ".join(names))
-            st.caption(f"recommend-api served by {rec.region} (it runs on AWS only)")
+            source = BACKEND_LABEL.get(rec.data.get("source"), "built-in data")
+            st.caption(f"recommend-api on {rec.region}, data from {source} (single-cloud by design)")
         except Unavailable:
             st.warning("Recommendations are unavailable right now. recommend-api runs on AWS only, "
                        "so it can't fail over. The rest of the shop still works.",
+                       icon=":material/cloud_off:")
+
+    with st.container(border=True):
+        st.markdown("**Warehouse stock (admin-api)**")
+        try:
+            inv = admin_inventory(reg)
+            stock = {i["product_id"]: i["stock"] for i in inv.data["items"]}
+            st.markdown(" · ".join(f"{PRODUCTS_BY_ID[pid]['name']}: {qty}"
+                                   for pid, qty in stock.items() if pid in PRODUCTS_BY_ID))
+            st.caption(f"admin-api on {inv.region}, records in "
+                       f"{BACKEND_LABEL.get(inv.data.get('source'), 'built-in data')} (single-cloud by design)")
+        except Unavailable:
+            st.warning("Stock admin is unavailable right now. admin-api runs on Azure only.",
                        icon=":material/cloud_off:")
 
     st.subheader("Cart", anchor=False)

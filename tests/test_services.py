@@ -147,7 +147,8 @@ def test_admin_update_unknown_product_404():
 def test_notify_queues():
     body = client_for("notify-api").post("/notify", json={"order_id": "o1", "email": "a@b.c",
                                                           "event": "order_confirmed"}).json()
-    assert body == {"status": "queued"}
+    assert body["status"] == "queued"          # tasks.md response
+    assert body["backend"] == "log" and body["message_id"]  # default in-memory backend
 
 
 # ---------- routing and simulated failure ----------
