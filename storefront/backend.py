@@ -101,10 +101,13 @@ class Registry:
 
     # ---------- calls with failover ----------
 
-    def call(self, service: str, method: str, path: str, **kwargs) -> CallResult:
+    def call(self, service: str, method: str, path: str, retry_if=None, **kwargs) -> CallResult:
         """Call the first UP region for `service`; on failure try the next UP
-        region (the architecture's 'retry on failure' rule)."""
+        region (the architecture's 'retry on failure' rule). `retry_if(data)`
+        also moves on for a valid answer another region may beat (e.g. that
+        region's stock share is sold out); the last such answer is returned."""
         attempts: list[str] = []
+        fallback: Optional[CallResult] = None
         for ep in self.lookup(service):
             if ep["status"] != "UP" or ep["region_id"] not in self.base:
                 continue
@@ -115,10 +118,30 @@ class Registry:
                     attempts.append(f"{SHORT.get(region_id, region_id)}: HTTP {r.status_code}")
                     continue
                 r.raise_for_status()
+                if retry_if is not None and retry_if(r.json()):
+                    fallback = CallResult(r.json(), region_id, list(attempts))
+                    attempts.append(f"{SHORT.get(region_id, region_id)}: share sold out")
+                    continue
                 return CallResult(r.json(), region_id, attempts)
             except httpx.HTTPError as exc:
                 attempts.append(f"{SHORT.get(region_id, region_id)}: {type(exc).__name__}")
+        if fallback is not None:
+            return fallback
         raise Unavailable(service, attempts)
+
+    def per_region(self, service: str, path: str) -> dict[str, Optional[dict]]:
+        """GET `path` from `service` in every region directly, in parallel.
+        {region_id: body or None if unreachable/failing}."""
+        def fetch(region_id):
+            try:
+                r = self.client.get(f"{self.base[region_id]}/{service}{path}")
+                r.raise_for_status()
+                return region_id, r.json()
+            except (httpx.HTTPError, ValueError):
+                return region_id, None
+
+        with ThreadPoolExecutor(max_workers=len(self.base)) as pool:
+            return dict(pool.map(fetch, self.base))
 
     def simulate(self, region_short: str, service: str, action: str) -> int:
         """action: 'fail' or 'recover'. Goes through that region's proxy."""
@@ -162,11 +185,13 @@ def checkout(reg: Registry, cart: dict[str, int], products: dict[str, dict],
                           (" — order held for manual review" if d["flagged"] else " — low risk")),
                json={"order_id": order_id, "user_id": "demo-user", "amount": amount}):
         return False, steps
+    # Each cloud sells only from its own share; if this one is sold out, try the next.
     if not run("Reserve stock", "inventory-check", "POST", "/reserve",
                lambda d: (d["status"] == "reserved",
                           "Items reserved" if d["status"] == "reserved" else
                           "Out of stock: " + ", ".join(products[s["product_id"]]["name"]
                                                        for s in d["items_status"] if not s["ok"])),
+               retry_if=lambda d: d["status"] != "reserved",
                json={"order_id": order_id,
                      "items": [{"product_id": p, "qty": q} for p, q in cart.items()]}):
         return False, steps
@@ -191,6 +216,16 @@ def recommendations(reg: Registry, product_id: str) -> CallResult:
 
 def admin_inventory(reg: Registry) -> CallResult:
     return reg.call("admin-api", "GET", "/inventory")
+
+
+def ledgers(reg: Registry) -> dict[str, Optional[dict]]:
+    """Each cloud's own copy of the payment ledger (replicated through Kafka)."""
+    return reg.per_region("payments-api", "/ledger?limit=5")
+
+
+def stocks(reg: Registry) -> dict[str, Optional[dict]]:
+    """Each cloud's own view of global stock and every region's share."""
+    return reg.per_region("inventory-check", "/stock")
 
 
 def now() -> str:

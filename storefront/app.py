@@ -17,7 +17,8 @@ import streamlit as st  # noqa: E402
 
 from services.catalog import PRODUCTS  # noqa: E402
 from storefront.backend import (BACKEND_LABEL, SERVICES, SHORT, Registry, Unavailable,  # noqa: E402
-                                admin_inventory, checkout, load_clouds, now, recommendations)
+                                admin_inventory, checkout, ledgers, load_clouds, now,
+                                recommendations, stocks)
 
 CONFIG = Path(os.environ.get("STOREFRONT_CONFIG", ROOT / "results" / "clouds.local.json"))
 PRODUCTS_BY_ID = {p["product_id"]: p for p in PRODUCTS}
@@ -187,6 +188,36 @@ with scenes:
                     st.markdown(e)
 
     registry_views()
+
+    @st.fragment(run_every="3s")
+    def kafka_replication():
+        """Each cloud's own copy of the payment ledger and stock, kept in sync by Kafka."""
+        st.markdown("**Payments and stock replicated through Kafka**")
+        books, stock_views = ledgers(reg), stocks(reg)
+        cols = st.columns(3)
+        for col, rid in zip(cols, REGION_ORDER):
+            with col.container(border=True, height="stretch"):
+                st.markdown(f"**{SHORT[rid]}'s copy**")
+                book = books.get(rid)
+                if book is None:
+                    st.error("Unreachable", icon=":material/cloud_off:")
+                    continue
+                counts = book["payments_by_region"]
+                st.markdown("Payments: " + " · ".join(
+                    f"{SHORT[r]} {counts.get(r, {}).get('count', 0)}" for r in REGION_ORDER))
+                for p in book["recent"][:3]:
+                    origin = SHORT.get(p["region_id"], p["region_id"])
+                    lag = f", arrived after {p['lag_ms']} ms" if p["replicated"] else ""
+                    st.caption(f"{inr(p['amount'])} paid on {origin}{lag}")
+                if book["unsent_events"]:
+                    st.caption(f":orange[{book['unsent_events']} change(s) waiting for Kafka]")
+                view = stock_views.get(rid)
+                if view:
+                    st.caption("Stock left: " + " · ".join(
+                        f"{PRODUCTS_BY_ID[i['product_id']]['name'].split()[-1]} {i['global_stock']}"
+                        f" ({i['local_share']} here)" for i in view["items"] if i["product_id"] in PRODUCTS_BY_ID))
+
+    kafka_replication()
 
     with st.expander("Demo controls", icon=":material/science:", expanded=True):
         def simulate(region: str, service: str, action: str) -> None:

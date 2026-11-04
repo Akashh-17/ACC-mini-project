@@ -1,0 +1,2 @@
+# All three VMs: the Kafka replicator (services/replicator.py)
+confluent-kafka>=2.5,<3

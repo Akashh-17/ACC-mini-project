@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from services.app import create_app
-from services.catalog import PRODUCTS
+from services.catalog import PRODUCTS, allocation
 
 GCP = "gcp-asia-south1"
 
@@ -86,9 +86,9 @@ def reserve(client, items):
 def test_reserve_decrements_stock():
     client = client_for("inventory-check")
     pid = PRODUCTS[0]["product_id"]
-    stock = PRODUCTS[0]["stock"]
+    stock = allocation()[GCP][pid]  # this region's share only
     assert reserve(client, [{"product_id": pid, "qty": stock}]) == {
-        "status": "reserved", "items_status": [{"product_id": pid, "ok": True}]}
+        "status": "reserved", "items_status": [{"product_id": pid, "ok": True}], "region": GCP}
     body = reserve(client, [{"product_id": pid, "qty": 1}])
     assert body["status"] == "insufficient"
     assert body["items_status"] == [{"product_id": pid, "ok": False}]
@@ -101,7 +101,7 @@ def test_reserve_is_all_or_nothing():
     assert body["status"] == "insufficient"
     assert body["items_status"] == [{"product_id": a, "ok": True}, {"product_id": b, "ok": False}]
     # a was not decremented by the failed order
-    stock_a = PRODUCTS[0]["stock"]
+    stock_a = allocation()[GCP][a]
     assert reserve(client, [{"product_id": a, "qty": stock_a}])["status"] == "reserved"
 
 
@@ -111,7 +111,8 @@ def test_reserve_unknown_product():
 
 
 def test_each_app_has_its_own_stock():
-    pid, stock = PRODUCTS[0]["product_id"], PRODUCTS[0]["stock"]
+    pid = PRODUCTS[0]["product_id"]
+    stock = allocation()[GCP][pid]
     reserve(client_for("inventory-check"), [{"product_id": pid, "qty": stock}])
     assert reserve(client_for("inventory-check"), [{"product_id": pid, "qty": 1}])["status"] == "reserved"
 

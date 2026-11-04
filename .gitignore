@@ -16,6 +16,10 @@ venv/
 *.csr
 certs/*/
 deploy/agent.env
+deploy/replicator.env
+*.db
+*.db-wal
+*.db-shm
 
 # Runtime output
 *.log

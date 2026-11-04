@@ -1,0 +1,20 @@
+# Kafka replicator for payments and stock; same unit on all 3 clouds.
+#   sudo cp deploy/registry-replicator.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now registry-replicator
+#   journalctl -u registry-replicator -f
+# Shares /var/lib/registry/ledger.db with payments-api and inventory-check.
+[Unit]
+Description=Kafka replicator for the payments/stock ledger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=registry
+WorkingDirectory=/opt/registry
+EnvironmentFile=/etc/registry/replicator.env
+ExecStart=/opt/registry/.venv/bin/python -m services.replicator
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,8 @@
 """Small hardcoded product catalog shared by the stub services and the storefront.
 
-Prices are in INR. `stock` is each service instance's starting stock; every
-inventory-check / admin-api process keeps its own copy (no shared database).
+Prices are in INR. `stock` is the total starting stock: inventory-check splits
+it between the clouds (allocation()) and replicates sales through Kafka
+(services/ledger.py); admin-api keeps its own warehouse copy.
 """
 from __future__ import annotations
 
@@ -26,6 +27,20 @@ RECOMMENDATIONS = {
 PAYMENT_LIMIT = 50000      # payments-api declines amounts above this
 FRAUD_THRESHOLD = 20000    # fraud-check flags amounts above this
 
+# inventory-check stock is split between the clouds (per-cloud allocation): each
+# cloud sells only from its own share, so the clouds can never oversell together.
+REGIONS = ["aws-ap-south-1", "azure-indiasouthcentral", "gcp-asia-south1"]
+
 
 def starting_stock() -> dict[str, int]:
     return {p["product_id"]: p["stock"] for p in PRODUCTS}
+
+
+def allocation() -> dict[str, dict[str, int]]:
+    """{region_id: {product_id: starting share}}; remainders go to the first regions."""
+    out: dict[str, dict[str, int]] = {r: {} for r in REGIONS}
+    for p in PRODUCTS:
+        base, extra = divmod(p["stock"], len(REGIONS))
+        for i, r in enumerate(REGIONS):
+            out[r][p["product_id"]] = base + (1 if i < extra else 0)
+    return out

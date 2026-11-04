@@ -74,3 +74,11 @@ On a cloud VM, set `SERVICE_HOST` to the VM's private address and leave
 `REGISTRY_ALLOW_LOOPBACK=false`.
 
 Never commit real registry secrets, public IPs, private keys or certificates.
+## Payments and stock ledger (Kafka)
+
+`payments-api` and `inventory-check` record approved payments and stock
+reservations in a local SQLite ledger (`LEDGER_PATH`; in-memory when unset).
+`services/replicator.py` copies the ledger to the other clouds through Kafka.
+Extra endpoints: `GET /ledger` (payments-api), `GET /stock` and
+`POST /stock/transfer` (inventory-check). Each cloud sells only from its own
+share of the stock. Setup: [`infra/kafka/README.md`](../infra/kafka/README.md).

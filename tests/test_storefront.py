@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from services.app import create_app
-from services.catalog import PRODUCTS
+from services.catalog import PRODUCTS, allocation
 from storefront.backend import Registry, Unavailable, checkout, recommendations
 
 CLOUDS = {
@@ -107,9 +107,10 @@ def test_large_order_held_by_fraud_check(world):
 
 
 def test_out_of_stock_stops_before_payment(world):
-    # Drain GCP's backpack stock (30) directly, then try to buy one more.
-    world.apps[("inventory-check", "gcp-asia-south1")].post(
-        "/reserve", json={"order_id": "x", "items": [{"product_id": "p4", "qty": 30}]})
+    # Every region sells its whole backpack share, then one more is ordered.
+    for r, share in allocation().items():
+        world.apps[("inventory-check", r)].post(
+            "/reserve", json={"order_id": "x", "items": [{"product_id": "p4", "qty": share["p4"]}]})
     ok, steps = checkout(world.registry(), {"p4": 1}, PRODUCTS_BY_ID)
     assert not ok and steps[-1].name == "Reserve stock" and "Laptop Backpack" in steps[-1].detail
 
@@ -149,3 +150,22 @@ def test_labels_show_managed_service_backends(world):
     inv = admin_inventory(world.registry())
     assert inv.region == "Azure" and inv.data["source"] == "memory"
     assert recommendations(world.registry(), "p1").data["source"] == "memory"
+
+
+def test_sold_out_share_fails_over_to_another_cloud(world):
+    gcp_share = allocation()["gcp-asia-south1"]["p4"]
+    world.apps[("inventory-check", "gcp-asia-south1")].post(
+        "/reserve", json={"order_id": "x", "items": [{"product_id": "p4", "qty": gcp_share}]})
+    ok, steps = checkout(world.registry(), {"p4": 1}, PRODUCTS_BY_ID)
+    reserve = steps[1]
+    assert ok and reserve.region in ("AWS", "Azure") and reserve.attempts == ["GCP: share sold out"]
+
+
+def test_per_region_ledgers_and_stock(world):
+    from storefront.backend import ledgers, stocks
+    world.unreachable.add("azure-indiasouthcentral")
+    checkout(world.registry(), {"p1": 1}, PRODUCTS_BY_ID)
+    views = ledgers(world.registry())
+    assert views["azure-indiasouthcentral"] is None
+    assert views["gcp-asia-south1"]["recent"][0]["region_id"] == "gcp-asia-south1"
+    assert stocks(world.registry())["aws-ap-south-1"]["items"][0]["product_id"] == "p1"

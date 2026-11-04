@@ -8,6 +8,10 @@ deterministic; there is no real payment gateway or fraud model.
 The single-cloud standard services can be backed by their cloud's managed service
 (services/backends.py, chosen by env var); /health then also reflects whether that
 managed service is reachable. Critical services never depend on one.
+
+payments-api and inventory-check write to the local ledger (services/ledger.py),
+which the replicator copies to the other clouds through Kafka. A write never
+waits for Kafka, so checkout keeps working while Kafka is unreachable.
 """
 from __future__ import annotations
 
@@ -15,7 +19,6 @@ import hashlib
 import logging
 import os
 import time
-import uuid
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -24,7 +27,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .backends import BackendError, HealthCache, backend_from_env
-from .catalog import FRAUD_THRESHOLD, PAYMENT_LIMIT, starting_stock
+from .catalog import FRAUD_THRESHOLD, PAYMENT_LIMIT, REGIONS
+from .ledger import Ledger, open_ledger
 
 log = logging.getLogger("services")
 
@@ -57,6 +61,12 @@ class StockUpdate(BaseModel):
     stock: int = Field(ge=0)
 
 
+class TransferRequest(BaseModel):
+    product_id: str
+    qty: int = Field(gt=0)
+    to_region: str
+
+
 class NotifyRequest(BaseModel):
     order_id: str
     email: str
@@ -73,12 +83,15 @@ def required_setting(name: str) -> str:
 _DEFAULT = object()
 
 
-def create_app(service_name: str, region_id: str, backend=_DEFAULT) -> FastAPI:
-    """`backend` defaults to the in-memory one; main() passes the env-selected one."""
+def create_app(service_name: str, region_id: str, backend=_DEFAULT,
+               ledger: Ledger | None = None) -> FastAPI:
+    """`backend` defaults to the in-memory one and `ledger` to a private
+    in-memory ledger; main() passes the env-selected ones."""
     state = {"healthy": True}
-    stock = starting_stock()  # inventory-check's own stock; per process
     if backend is _DEFAULT:
         backend = backend_from_env(service_name, {})
+    if ledger is None and service_name in ("payments-api", "inventory-check"):
+        ledger = open_ledger(None, region_id)
     health = HealthCache(backend.check if backend else (lambda: None))
 
     @asynccontextmanager
@@ -129,8 +142,14 @@ def create_app(service_name: str, region_id: str, backend=_DEFAULT) -> FastAPI:
         async def authorize(req: AuthorizeRequest):
             if req.amount > PAYMENT_LIMIT:
                 return {"status": "declined", "reason": f"amount exceeds {PAYMENT_LIMIT} limit"}
-            return {"status": "approved", "transaction_id": f"txn_{uuid.uuid4().hex[:12]}",
-                    "region": region_id}
+            event = await run_in_threadpool(ledger.record_payment, req.order_id, req.amount, req.currency)
+            return {"status": "approved", "transaction_id": event["txn_id"], "region": region_id}
+
+        @app.get("/ledger", dependencies=[Depends(available)])
+        async def payments_ledger(limit: int = 20):
+            """Payments from every cloud as this cloud currently knows them."""
+            summary = await run_in_threadpool(ledger.summary)
+            return {**summary, "recent": await run_in_threadpool(ledger.payments, min(max(limit, 1), 100))}
 
     elif service_name == "fraud-check":
         @app.post("/score", dependencies=[Depends(available)])
@@ -144,17 +163,23 @@ def create_app(service_name: str, region_id: str, backend=_DEFAULT) -> FastAPI:
     elif service_name == "inventory-check":
         @app.post("/reserve", dependencies=[Depends(available)])
         async def reserve(req: ReserveRequest):
-            wanted: dict[str, int] = {}
-            for item in req.items:
-                wanted[item.product_id] = wanted.get(item.product_id, 0) + item.qty
-            items_status = [{"product_id": item.product_id,
-                             "ok": stock.get(item.product_id, 0) >= wanted[item.product_id]}
-                            for item in req.items]
-            if not all(s["ok"] for s in items_status):
-                return {"status": "insufficient", "items_status": items_status}
-            for pid, qty in wanted.items():  # all-or-nothing
-                stock[pid] -= qty
-            return {"status": "reserved", "items_status": items_status}
+            # Sells only from this region's share (all-or-nothing).
+            ok, items_status = await run_in_threadpool(
+                ledger.reserve, req.order_id, [(i.product_id, i.qty) for i in req.items])
+            return {"status": "reserved" if ok else "insufficient", "items_status": items_status,
+                    "region": region_id}
+
+        @app.get("/stock", dependencies=[Depends(available)])
+        async def stock():
+            return {"region_id": region_id, "items": await run_in_threadpool(ledger.stock)}
+
+        @app.post("/stock/transfer", dependencies=[Depends(available)])
+        async def transfer(req: TransferRequest):
+            """Move part of this region's share to another region."""
+            if req.to_region not in REGIONS or req.to_region == region_id:
+                raise HTTPException(status_code=422, detail="to_region must be another known region")
+            ok = await run_in_threadpool(ledger.transfer, req.product_id, req.qty, req.to_region)
+            return {"status": "transferred" if ok else "insufficient"}
 
     elif service_name == "recommend-api":
         @app.get("/recommendations", dependencies=[Depends(available)])
@@ -200,7 +225,12 @@ def main() -> None:
     backend = backend_from_env(service_name, os.environ)
     if backend is not None:
         log.warning("%s using %s backend", service_name, backend.name)
-    uvicorn.run(create_app(service_name, region_id, backend=backend), host=host, port=port)
+    ledger = None
+    if service_name in ("payments-api", "inventory-check"):
+        path = os.environ.get("LEDGER_PATH", "").strip()
+        ledger = open_ledger(path, region_id)
+        log.warning("%s ledger: %s", service_name, path or "in-memory (not replicated)")
+    uvicorn.run(create_app(service_name, region_id, backend=backend, ledger=ledger), host=host, port=port)
 
 
 if __name__ == "__main__":
