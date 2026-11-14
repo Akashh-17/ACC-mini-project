@@ -105,6 +105,26 @@ journalctl -u registry-replicator -f | grep kafka_applied   # shows lag_ms
 - Kafka outage: stop `registry-replicator` on one VM, place orders there
   (they succeed, `/ledger` shows `unsent_events`), start it again and watch
   them arrive on the others.
+- Both measurements are automated by `python -m harness.kafka_experiments`
+  (`lag`, `outage`); it places real orders, so reset afterwards.
+
+## 4. Reset for a clean demo
+
+Rehearsals and experiments leave orders behind. To start again from no
+payments and full stock, **every** VM runs this once:
+
+```bash
+sudo systemctl stop registry-replicator registry-service@payments-api registry-service@inventory-check && sudo rm -f /var/lib/registry/ledger.db /var/lib/registry/ledger.db-wal /var/lib/registry/ledger.db-shm && sudo systemctl start registry-service@payments-api registry-service@inventory-check registry-replicator
+```
+
+A reset VM does not read the old events back: its replicator remembers how far
+it has read in Kafka. The old events do stay in Kafka, though, and would come
+back if a VM ever replays the topics from the start. For a full reset, also
+empty the topics in Confluent (Topics → `payments` / `inventory-events` →
+delete, then recreate with the same name, 1 partition, retention Infinite), and
+afterwards run `sudo systemctl restart registry-replicator` on any VM whose
+replicator was running during the recreate. Don't place orders until every VM
+is reset.
 
 ## Cleanup after grading
 
