@@ -198,20 +198,27 @@ with scenes:
         for col, rid in zip(cols, REGION_ORDER):
             with col.container(border=True, height="stretch"):
                 st.markdown(f"**{SHORT[rid]}'s copy**")
-                book = books.get(rid)
-                if book is None:
+                book, view = books.get(rid), stock_views.get(rid)
+                if book is None and view is None:
                     st.error("Unreachable", icon=":material/cloud_off:")
                     continue
-                counts = book["payments_by_region"]
-                st.markdown("Payments: " + " · ".join(
-                    f"{SHORT[r]} {counts.get(r, {}).get('count', 0)}" for r in REGION_ORDER))
-                for p in book["recent"][:3]:
-                    origin = SHORT.get(p["region_id"], p["region_id"])
-                    lag = f", arrived after {p['lag_ms']} ms" if p["replicated"] else ""
-                    st.caption(f"{inr(p['amount'])} paid on {origin}{lag}")
-                if book["unsent_events"]:
-                    st.caption(f":orange[{book['unsent_events']} change(s) waiting for Kafka]")
-                view = stock_views.get(rid)
+                if book is None:
+                    # payments-api failed here: its ledger can't be read, but the
+                    # replicator keeps the data and it reappears on recovery.
+                    st.warning("payments-api is down here; ledger hidden until it recovers",
+                               icon=":material/power_off:")
+                else:
+                    counts = book["payments_by_region"]
+                    st.markdown("Payments: " + " · ".join(
+                        f"{SHORT[r]} {counts.get(r, {}).get('count', 0)}" for r in REGION_ORDER))
+                    for p in book["recent"][:3]:
+                        origin = SHORT.get(p["region_id"], p["region_id"])
+                        # Events older than this cloud's replicator arrive as a catch-up, not live.
+                        lag = ("" if not p["replicated"] else f", arrived after {p['lag_ms']} ms"
+                               if p["lag_ms"] < 60_000 else ", synced later (catch-up)")
+                        st.caption(f"{inr(p['amount'])} paid on {origin}{lag}")
+                    if book["unsent_events"]:
+                        st.caption(f":orange[{book['unsent_events']} change(s) waiting for Kafka]")
                 if view:
                     st.caption("Stock left: " + " · ".join(
                         f"{PRODUCTS_BY_ID[i['product_id']]['name'].split()[-1]} {i['global_stock']}"
