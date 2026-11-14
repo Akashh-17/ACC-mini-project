@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control room · CrossCloud</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="control">
+<header class="topbar">
+  <div class="wrap">
+    <div class="row">
+      <span class="brand-mark" id="brand-icon"></span>
+      <span class="brand-name">CrossCloud</span>
+      <span class="muted" style="font-size:20px">/</span>
+      <h1 style="font-size:20px;font-weight:600">Control room</h1>
+    </div>
+    <div class="row" style="margin-left:auto;flex-wrap:wrap">
+      <span class="pill plain" id="kafka-pill">Kafka · checking…</span>
+      <span class="pill plain mono" id="clock">live</span>
+      <a class="btn" href="/store" target="crosscloud-store" id="store-link" style="height:40px"></a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap cr-main">
+  <section class="metrics" aria-label="Key numbers" id="metrics"></section>
+
+  <section aria-labelledby="clouds-h" style="display:flex;flex-direction:column;gap:12px">
+    <div class="spread">
+      <h2 id="clouds-h" style="font-size:20px">Clouds and services</h2>
+      <span class="muted" style="font-size:13px">Each card shows what that cloud's own registry reports. Fail or recover any service.</span>
+    </div>
+    <div class="clouds" id="clouds"></div>
+  </section>
+
+  <div class="cr-split">
+    <div class="cr-left">
+      <section class="card panel" aria-labelledby="views-h">
+        <div class="spread">
+          <h2 id="views-h">What each registry sees</h2>
+          <span class="muted" style="font-size:12px">UP · DOWN · STALE per region, replicated between registries over mTLS</span>
+        </div>
+        <div class="table-box">
+          <table class="views">
+            <thead><tr><th scope="col">Service</th><th scope="col">GCP's view</th><th scope="col">AWS's view</th><th scope="col">Azure's view</th></tr></thead>
+            <tbody id="views"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card panel" aria-labelledby="ledger-h">
+        <div class="spread">
+          <h2 id="ledger-h">Payments ledger — each cloud's own copy</h2>
+          <span class="muted" style="font-size:12px">kept in sync through Kafka topic <span class="mono">payments</span></span>
+        </div>
+        <div class="ledgers" id="ledgers"></div>
+      </section>
+
+      <section class="card panel" aria-labelledby="stock-h">
+        <div class="spread">
+          <h2 id="stock-h">Stock — who can sell what</h2>
+          <div class="legend">
+            <span><span class="sw" style="background:var(--gcp)"></span>GCP share</span>
+            <span><span class="sw" style="background:var(--aws)"></span>AWS share</span>
+            <span><span class="sw" style="background:var(--azure)"></span>Azure share</span>
+            <span><span class="sw" style="background:var(--line-strong)"></span>sold</span>
+          </div>
+        </div>
+        <div id="stock" style="display:flex;flex-direction:column;gap:14px"></div>
+        <form class="transfer" id="transfer">
+          <span class="muted">Move stock</span>
+          <label><span class="visually-hidden">Quantity</span><input id="t-qty" type="number" min="1" value="1" required></label>
+          <span class="muted">×</span>
+          <label><span class="visually-hidden">Product</span><select id="t-product"></select></label>
+          <span class="muted">from</span>
+          <label><span class="visually-hidden">From cloud</span><select id="t-from"><option value="aws">AWS</option><option value="azure">Azure</option><option value="gcp">GCP</option></select></label>
+          <span class="muted">to</span>
+          <label><span class="visually-hidden">To cloud</span><select id="t-to"><option value="gcp">GCP</option><option value="aws">AWS</option><option value="azure">Azure</option></select></label>
+          <button class="btn btn-sm btn-dark" type="submit" style="height:36px">Transfer</button>
+        </form>
+      </section>
+    </div>
+
+    <aside class="card feed" aria-labelledby="feed-h">
+      <div class="spread" style="align-items:center">
+        <h2 id="feed-h" style="font-size:18px">Live activity</h2>
+        <span class="row" style="font-size:12px;color:#6EE7B7;gap:6px"><span class="dot UP"></span>streaming</span>
+      </div>
+      <ol id="feed" aria-live="polite"></ol>
+    </aside>
+  </div>
+</main>
+
+<script src="/static/common.js"></script>
+<script src="/static/control.js"></script>
+</body>
+</html>

@@ -1,5 +1,9 @@
 # CrossCloud Store (demo frontend)
 
+> The demo now uses the two-page web app in [`webapp/`](../webapp/README.md)
+> (`python -m webapp`). This Streamlit version is kept as a fallback; the
+> web app reuses `backend.py` from here.
+
 A small shop on top of the cross-cloud registry, for the live demo. It runs on the
 presenter's laptop and reaches the three regions' proxies over Tailscale.
 

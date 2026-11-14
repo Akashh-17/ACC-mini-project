@@ -148,6 +148,12 @@ class Registry:
         base = self.clouds[region_short]["base_url"].rstrip("/")
         return self.client.post(f"{base}/{service}/simulate/{action}").status_code
 
+    def transfer(self, from_short: str, product_id: str, qty: int, to_region: str) -> httpx.Response:
+        """Move stock share; only the giving cloud can do it, so it goes to that proxy."""
+        base = self.clouds[from_short]["base_url"].rstrip("/")
+        return self.client.post(f"{base}/inventory-check/stock/transfer",
+                                json={"product_id": product_id, "qty": qty, "to_region": to_region})
+
 
 # ---------- checkout ----------
 
@@ -158,18 +164,20 @@ class Step:
     detail: str
     region: Optional[str] = None
     attempts: list[str] = field(default_factory=list)
+    ms: Optional[int] = None  # how long the step's call took
 
 
 def checkout(reg: Registry, cart: dict[str, int], products: dict[str, dict],
-             email: str = "customer@example.com") -> tuple[bool, list[Step]]:
+             email: str = "customer@example.com", order_id: Optional[str] = None) -> tuple[bool, list[Step]]:
     """Fraud check -> reserve stock -> authorize payment -> confirmation email.
     Returns (order_placed, steps). Stops at the first blocking failure; the
     email step is best-effort (notify-api is single-cloud by design)."""
-    order_id = f"ord_{uuid.uuid4().hex[:8]}"
+    order_id = order_id or f"ord_{uuid.uuid4().hex[:8]}"
     amount = sum(products[pid]["price"] * qty for pid, qty in cart.items())
     steps: list[Step] = []
 
     def run(name, service, method, path, describe, blocking=True, **kw):
+        start = time.perf_counter()
         try:
             res = reg.call(service, method, path, **kw)
         except Unavailable as exc:
@@ -177,7 +185,8 @@ def checkout(reg: Registry, cart: dict[str, int], products: dict[str, dict],
                               if blocking else "Unavailable; will retry later", None, exc.attempts))
             return None
         ok, detail = describe(res.data)
-        steps.append(Step(name, ok, detail, res.region, res.attempts))
+        steps.append(Step(name, ok, detail, res.region, res.attempts,
+                          round((time.perf_counter() - start) * 1000)))
         return res if ok else None
 
     if not run("Fraud check", "fraud-check", "POST", "/score",

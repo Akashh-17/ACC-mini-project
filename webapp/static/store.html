@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossCloud Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="store">
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/store"><span class="brand-mark" id="brand-icon"></span><span class="brand-name">CrossCloud</span></a>
+    <label class="search">
+      <span id="search-icon" class="muted"></span>
+      <span class="visually-hidden">Search products</span>
+      <input id="search" type="search" placeholder="Search earbuds, watches, cameras…" autocomplete="off">
+    </label>
+    <nav class="row">
+      <a class="btn" href="/control" target="crosscloud-control" id="control-link"></a>
+      <button class="btn btn-dark" type="button" id="cart-button"></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap store-main">
+  <div class="store-col">
+    <section class="hero" aria-labelledby="hero-h">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <span class="health" id="health"><span class="dot none"></span>Checking the clouds…</span>
+        <h1 id="hero-h">Gadgets that never go offline.</h1>
+        <p>Every order is routed to a healthy cloud — AWS, Azure or GCP — and every payment is mirrored to all three.</p>
+      </div>
+      <div class="row"><span class="chip gcp">GCP</span><span class="chip aws">AWS</span><span class="chip azure">Azure</span></div>
+    </section>
+
+    <section aria-labelledby="products-h" style="display:flex;flex-direction:column;gap:16px">
+      <div class="spread">
+        <h2 id="products-h" style="font-size:24px">Products</h2>
+        <span class="muted" style="font-size:13px">Stock shown is the live total across all clouds</span>
+      </div>
+      <div class="grid" id="products"></div>
+      <p class="muted" id="no-match" hidden>No products match your search.</p>
+    </section>
+
+    <section class="card recs" aria-labelledby="recs-h">
+      <div class="spread">
+        <h2 id="recs-h" style="font-family:var(--font);font-size:17px;font-weight:600;letter-spacing:0">Customers also bought</h2>
+        <span class="muted" style="font-size:12px" id="recs-source"></span>
+      </div>
+      <div id="recs"></div>
+    </section>
+  </div>
+
+  <aside class="store-side">
+    <section class="card cart" aria-labelledby="cart-h" id="cart-panel">
+      <h2 id="cart-h" style="font-size:20px">Your cart</h2>
+      <div id="cart-lines"></div>
+      <div class="total"><span>Total</span><span id="cart-total">₹0</span></div>
+      <label class="field">Email for confirmation
+        <input id="email" type="email" value="customer@example.com" autocomplete="email">
+      </label>
+      <button class="btn btn-accent" type="button" id="place-order" disabled>Place order</button>
+    </section>
+    <section class="card trace" aria-live="polite" id="trace" hidden></section>
+  </aside>
+</main>
+
+<footer class="wrap footer">
+  <span>Routed by the cross-cloud service registry</span>
+  <span>Home region: GCP Mumbai</span>
+  <a href="/control" target="crosscloud-control">Open the control room</a>
+</footer>
+
+<script src="/static/common.js"></script>
+<script src="/static/store.js"></script>
+</body>
+</html>

@@ -145,7 +145,8 @@ def create_app(service_name: str, region_id: str, backend=_DEFAULT,
             event = await run_in_threadpool(ledger.record_payment, req.order_id, req.amount, req.currency)
             return {"status": "approved", "transaction_id": event["txn_id"], "region": region_id}
 
-        @app.get("/ledger", dependencies=[Depends(available)])
+        # Read-only replicated data stays visible while the service is "failed".
+        @app.get("/ledger")
         async def payments_ledger(limit: int = 20):
             """Payments from every cloud as this cloud currently knows them."""
             summary = await run_in_threadpool(ledger.summary)
@@ -169,7 +170,7 @@ def create_app(service_name: str, region_id: str, backend=_DEFAULT,
             return {"status": "reserved" if ok else "insufficient", "items_status": items_status,
                     "region": region_id}
 
-        @app.get("/stock", dependencies=[Depends(available)])
+        @app.get("/stock")
         async def stock():
             return {"region_id": region_id, "items": await run_in_threadpool(ledger.stock)}
 

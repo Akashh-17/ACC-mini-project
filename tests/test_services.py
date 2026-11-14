@@ -168,3 +168,12 @@ def test_simulated_failure_also_fails_business_endpoint():
 
 def test_invalid_request_rejected():
     assert client_for("payments-api").post("/authorize", json={"amount": "lots"}).status_code == 422
+
+
+def test_read_only_views_survive_simulated_failure():
+    pay, inv = client_for("payments-api"), client_for("inventory-check")
+    pay.post("/simulate/fail"); inv.post("/simulate/fail")
+    assert pay.get("/ledger").status_code == 200
+    assert inv.get("/stock").status_code == 200
+    assert authorize(pay, 10).status_code == 503
+    assert reserve(inv, [{"product_id": "p1", "qty": 1}]) == {"detail": "service is simulated as failed"}

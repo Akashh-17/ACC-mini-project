@@ -114,6 +114,24 @@ messages between publishing rounds, not the network.
 refused by GCP ("share sold out") and served by AWS from its own share, and all
 clouds showed the same remaining total.
 
+**For context: how fast the registry reroutes around a failed service**
+(Phase 5 convergence run, 2026-10-15, measured from the GCP VM; 10 trials per
+cloud, 30 in total, none missed; pooled across the three clouds from the run's
+raw data):
+
+| From a service failing until… | n | median | p95 | max |
+|---|---|---|---|---|
+| its own registry marks it DOWN (detection; health checks every 5 s) | 30 | 3.1 s | 4.8 s | 5.0 s |
+| the other two registries also show DOWN (registry replication) | 30 | 1.0 s | 2.0 s | 2.0 s |
+| **all three registries show DOWN (total)** | 30 | **4.3 s** | 6.3 s | 6.9 s |
+| a recovered service is UP everywhere again (total) | 30 | 4.2 s | 6.3 s | 6.3 s |
+
+The two mechanisms are complementary. The registry decides **where** a
+payment can be taken: within about 4 s every registry lists a failed
+payments-api as DOWN, so callers skip it; before that, a call to it fails and
+the caller retries the next cloud. Kafka makes sure the payment, wherever it
+was taken, reaches the other clouds' ledgers (about 0.5 s).
+
 ## Limitations
 
 - **Single Kafka cluster.** Confluent Cloud Basic is one cluster in one

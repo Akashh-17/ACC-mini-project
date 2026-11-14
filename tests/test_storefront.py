@@ -31,6 +31,7 @@ class World:
                 self.apps[(svc, r)] = TestClient(create_app(svc, r))
                 self.status[(svc, r)] = "UP"
         self.unreachable = set()
+        self.ledger_extra = {}  # region -> extra /ledger rows (stands in for Kafka)
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         observer = HOST_TO_REGION[request.url.host]
@@ -48,6 +49,10 @@ class World:
             return httpx.Response(404)
         resp = app.request(request.method, "/" + rest, params=dict(request.url.params),
                            content=request.content, headers={"content-type": "application/json"})
+        if svc == "payments-api" and rest.startswith("ledger") and self.ledger_extra.get(observer):
+            body = resp.json()
+            body["recent"] = self.ledger_extra[observer] + body["recent"]
+            return httpx.Response(resp.status_code, json=body)
         return httpx.Response(resp.status_code, content=resp.content)
 
     def registry(self):
@@ -169,3 +174,17 @@ def test_per_region_ledgers_and_stock(world):
     assert views["azure-indiasouthcentral"] is None
     assert views["gcp-asia-south1"]["recent"][0]["region_id"] == "gcp-asia-south1"
     assert stocks(world.registry())["aws-ap-south-1"]["items"][0]["product_id"] == "p1"
+
+
+def test_steps_have_timing_and_given_order_id(world):
+    ok, steps = checkout(world.registry(), {"p1": 1}, PRODUCTS_BY_ID, order_id="ord_fixed")
+    assert ok and all(isinstance(s.ms, int) and s.ms >= 0 for s in steps)
+    body = world.apps[("payments-api", "gcp-asia-south1")].get("/ledger").json()
+    assert body["recent"][0]["order_id"] == "ord_fixed"
+
+
+def test_transfer_goes_through_giving_cloud(world):
+    r = world.registry().transfer("aws", "p5", 1, "gcp-asia-south1")
+    assert r.status_code == 200 and r.json() == {"status": "transferred"}
+    stock = world.apps[("inventory-check", "aws-ap-south-1")].get("/stock").json()["items"]
+    assert next(i for i in stock if i["product_id"] == "p5")["local_share"] == allocation()["aws-ap-south-1"]["p5"] - 1
